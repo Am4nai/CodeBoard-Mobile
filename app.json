@@ -4,7 +4,7 @@
     "slug": "codeboard-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "",
+    "icon": "icon.png",
     "scheme": "codeboardmobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,

@@ -1,7 +1,7 @@
 import { useTheme } from "@/src/theme/useTheme";
 import { Step } from "@/src/types/types";
 import * as ImagePicker from "expo-image-picker";
-import { extractTextFromImage, isSupported } from "expo-text-extractor";
+// import { extractTextFromImage, isSupported } from "expo-text-extractor";
 import { useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 
@@ -21,28 +21,34 @@ export default function CameraModal({ onClose, onApply }: Props) {
 
   const processImage = async (path: string) => {
     setStep(Step.processing);
-    setErrorMessage("");
 
-    if (!isSupported) {
-      setErrorMessage("Text extraction is not supported on this device");
-      setStep(Step.error);
-      return;
-    }
+    const fakeText = "// OCR disabled\nconsole.log('Hello from image');";
 
-    try {
-      const extractedTexts = await extractTextFromImage(path);
-      setRecognizedText(extractedTexts);
+    onApply(fakeText);
+    onClose();
 
-      const fullText = extractedTexts.join("\n");
-      setEditedText(fullText);
+    // setErrorMessage("");
 
-      onApply(fullText);
-      setStep(Step.review);
-      onClose();
-    } catch (error) {
-      setErrorMessage("Text Extraction Error");
-      setStep(Step.error);
-    }
+    // if (!isSupported) {
+    //   setErrorMessage("Text extraction is not supported on this device");
+    //   setStep(Step.error);
+    //   return;
+    // }
+
+    // try {
+    //   const extractedTexts = await extractTextFromImage(path);
+    //   setRecognizedText(extractedTexts);
+
+    //   const fullText = extractedTexts.join("\n");
+    //   setEditedText(fullText);
+
+    //   onApply(fullText);
+    //   setStep(Step.review);
+    //   onClose();
+    // } catch (error) {
+    //   setErrorMessage("Text Extraction Error");
+    //   setStep(Step.error);
+    // }
   };
 
   const pickImage = async () => {

@@ -1,132 +1,123 @@
+import { api } from "@/src/api/http";
 import { useTheme } from "@/src/theme/useTheme";
+import type { PostCardProps, PostsResponse } from "@/src/types/types";
+import PostCard from "@/src/ui/components/PostCard";
+import Header from "@/src/ui/layout/header";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
-
-type Item = {
-  id: string;
-  h: number;
-};
-
-function Header() {
-  const router = useRouter();
-  const t = useTheme();
-
-  return (
-    <View
-      style={{
-        paddingTop: 32,
-        paddingHorizontal: 16,
-        paddingBottom: 12,
-        backgroundColor: t.bg,
-      }}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Text
-          style={{
-            color: t.text,
-            fontSize: 24,
-            fontWeight: "700",
-          }}
-        >
-          CodeBoard
-        </Text>
-
-        <Pressable onPress={() => router.navigate("/(tabs)/profile")}>
-          <Image
-            source={{ uri: "https://i.pravatar.cc/100" }}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 11,
-              borderWidth: 1,
-              borderColor: t.surfaceLiteFocus,
-            }}
-          />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function Card({ item }: { item: Item }) {
-  const t = useTheme();
-
-  return (
-    <View
-      style={{
-        backgroundColor: t.surfaceLite,
-        borderRadius: 12,
-        padding: 12,
-        height: item.h,
-        borderWidth: 1,
-        borderColor: t.surfaceLiteFocus,
-      }}
-    >
-      <View style={{ gap: 8 }}>
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "75%",
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "60%",
-          }}
-        />
-      </View>
-    </View>
-  );
-}
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 
 export default function Home() {
   const t = useTheme();
 
-  const data = useMemo(() => {
-    return Array.from({ length: 40 }).map((_, i) => ({
-      id: String(i),
-      h: 150 + ((i * 37) % 120),
-    }));
-  }, []);
+  const [posts, setPosts] = useState<PostCardProps[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [remainingPosts, setRemainingPosts] = useState<number | null>(null);
+
+  const isFetching = useRef(false);
+  const isThrottled = useRef(false);
+
+  const fetchPosts = async (pageToLoad: number) => {
+    if (isFetching.current) return;
+    if (remainingPosts !== null && remainingPosts <= 0) return;
+
+    isFetching.current = true;
+    setError("");
+
+    if (pageToLoad === 1) setLoading(true);
+    else setLoadingMore(true);
+
+    try {
+      const response = await api.get<PostsResponse>(
+        `/posts?page=${pageToLoad}&limit=15`,
+      );
+
+      const mapped: PostCardProps[] = response.data.posts.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.description ?? "",
+        code: p.code,
+        language: p.language_name,
+        authorName: p.author_name,
+        createdAt: p.created_at,
+        likes: p.like_count,
+        comments: p.comment_count,
+        views: p.views_count,
+      }));
+
+      setPosts((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        const filtered = mapped.filter((x) => !seen.has(x.id));
+        return [...prev, ...filtered];
+      });
+
+      setRemainingPosts(response.data.remainingPosts);
+    } catch (err) {
+      console.log(err);
+      setError("Failed to load posts.");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+      isFetching.current = false;
+    }
+  };
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isThrottled.current) return;
+    if (isFetching.current) return;
+    if (remainingPosts !== null && remainingPosts <= 0) return;
+
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+
+    const isNearBottom =
+      layoutMeasurement.height + contentOffset.y >= contentSize.height - 350;
+
+    if (isNearBottom) {
+      isThrottled.current = true;
+      setPage((prev) => prev + 1);
+
+      setTimeout(() => {
+        isThrottled.current = false;
+      }, 500);
+    }
+  };
+
+  useEffect(() => {
+    fetchPosts(page);
+  }, [page]);
 
   const { left, right } = useMemo(() => {
-    const l: Item[] = [];
-    const r: Item[] = [];
+    const l: PostCardProps[] = [];
+    const r: PostCardProps[] = [];
     let lh = 0;
     let rh = 0;
 
-    for (const it of data) {
+    for (const post of posts) {
+      const estimatedHeight =
+        130 + (post.description?.length ?? 0) * 0.35 + post.title.length * 0.25;
+
       if (lh <= rh) {
-        l.push(it);
-        lh += it.h;
+        l.push(post);
+        lh += estimatedHeight;
       } else {
-        r.push(it);
-        rh += it.h;
+        r.push(post);
+        rh += estimatedHeight;
       }
     }
 
     return { left: l, right: r };
-  }, [data]);
+  }, [posts]);
+
+  const isEmpty = !loading && posts.length === 0 && !error;
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
@@ -135,25 +126,71 @@ export default function Home() {
       <View style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           contentContainerStyle={{
             paddingHorizontal: 8,
             paddingBottom: 120,
             paddingTop: 16,
           }}
         >
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <View style={{ flex: 1, gap: 8 }}>
-              {left.map((item) => (
-                <Card key={item.id} item={item} />
-              ))}
-            </View>
+          {loading && (
+            <Text style={{ color: t.textSecondary, paddingHorizontal: 8 }}>
+              Loading posts...
+            </Text>
+          )}
 
-            <View style={{ flex: 1, gap: 8 }}>
-              {right.map((item) => (
-                <Card key={item.id} item={item} />
-              ))}
+          {error ? (
+            <Text style={{ color: t.textSecondary, paddingHorizontal: 8 }}>
+              {error}
+            </Text>
+          ) : null}
+
+          {isEmpty && (
+            <Text style={{ color: t.textSecondary, paddingHorizontal: 8 }}>
+              No posts yet.
+            </Text>
+          )}
+
+          {!loading && !error && posts.length > 0 && (
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1, gap: 8 }}>
+                {left.map((post) => (
+                  <PostCard key={post.id} {...post} mode="add" />
+                ))}
+              </View>
+
+              <View style={{ flex: 1, gap: 8 }}>
+                {right.map((post) => (
+                  <PostCard key={post.id} {...post} mode="add" />
+                ))}
+              </View>
             </View>
-          </View>
+          )}
+
+          {loadingMore && (
+            <Text
+              style={{
+                color: t.textSecondary,
+                textAlign: "center",
+                marginTop: 18,
+              }}
+            >
+              Loading more...
+            </Text>
+          )}
+
+          {!loadingMore && remainingPosts === 0 && posts.length > 0 && (
+            <Text
+              style={{
+                color: t.textSecondary,
+                textAlign: "center",
+                marginTop: 24,
+              }}
+            >
+              You’ve reached the end.
+            </Text>
+          )}
         </ScrollView>
 
         <LinearGradient
