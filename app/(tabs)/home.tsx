@@ -4,7 +4,14 @@ import type { PostCardProps, PostsResponse } from "@/src/types/types";
 import PostCard from "@/src/ui/components/PostCard";
 import Header from "@/src/ui/layout/header";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -91,7 +98,24 @@ export default function Home() {
     }
   };
 
+  // const refreshPosts = async () => {
+  //   setPosts([]);
+  //   setPage(1);
+  //   setRemainingPosts(null);
+  //   await fetchPosts(1);
+  // };
+
+  useFocusEffect(
+    useCallback(() => {
+      setPosts([]);
+      setRemainingPosts(null);
+      setPage(1);
+      fetchPosts(1);
+    }, []),
+  );
+
   useEffect(() => {
+    if (page === 1) return;
     fetchPosts(page);
   }, [page]);
 
