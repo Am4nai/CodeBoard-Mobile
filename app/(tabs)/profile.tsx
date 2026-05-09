@@ -1,7 +1,17 @@
+import { api } from "@/src/api/http";
 import { useAuth } from "@/src/hooks/auth/useAuth";
 import { useTheme } from "@/src/theme/useTheme";
+import type {
+  PostCardProps,
+  UserPostsResponse,
+  UserResponse,
+} from "@/src/types/types";
+import PostCard from "@/src/ui/components/PostCard";
+import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import * as SecureStore from "expo-secure-store";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,8 +21,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-
-type Item = { id: string; h: number };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   const t = useTheme();
@@ -108,110 +116,178 @@ function ActionButton({
   );
 }
 
-function CardSkeleton({ item }: { item: Item }) {
-  const t = useTheme();
-  return (
-    <View
-      style={{
-        backgroundColor: t.surfaceLite,
-        borderRadius: 16,
-        padding: 12,
-        height: item.h,
-        borderWidth: 1,
-        borderColor: t.surfaceLiteFocus,
-      }}
-    >
-      <View style={{ gap: 8 }}>
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "70%",
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "60%",
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
 export default function Profile() {
   const t = useTheme();
   const { user } = useAuth();
+  const params = useLocalSearchParams<{ id?: string }>();
 
-  const isOwner = true;
+  const profileUserId = params.id ?? String(user?.id ?? "");
+  const isOwner = !!user?.id && String(user.id) === String(profileUserId);
 
-  const initialAvatar =
-    user?.profile?.avatar_url ?? "https://placehold.co/128x128";
-  const [avatarUrl, setAvatarUrl] = useState(initialAvatar);
+  const [posts, setPosts] = useState<PostCardProps[]>([]);
 
-  const [username, setUsername] = useState(user?.username ?? "");
-  const [email, setEmail] = useState(user?.email ?? "");
-  const [description, setDescription] = useState(
-    user?.profile?.description ?? "",
-  );
-  const [about, setAbout] = useState(user?.profile?.about ?? "");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState("https://placehold.co/128x128");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [description, setDescription] = useState("");
+  const [about, setAbout] = useState("");
+  const [createdAt, setCreatedAt] = useState("");
 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingPosts, setLoadingPosts] = useState(true);
 
-  const loadingProfile = false;
-  const loadingPosts = false;
+  const fetchPosts = async (uid: string) => {
+    try {
+      setLoadingPosts(true);
+      setError("");
 
-  const data = useMemo(() => {
-    return Array.from({ length: 18 }).map((_, i) => ({
-      id: String(i),
-      h: 150 + ((i * 37) % 120),
-    }));
-  }, []);
+      const response = await api.get<UserPostsResponse>(`/users/${uid}/posts`);
 
-  const { left, right } = useMemo(() => {
-    const l: Item[] = [];
-    const r: Item[] = [];
-    let lh = 0;
-    let rh = 0;
+      const mapped: PostCardProps[] = response.data.posts.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.description ?? "",
+        code: p.code,
+        language: p.language_name,
+        authorName: p.author_name,
+        createdAt: p.created_at,
+        likes: p.like_count,
+        comments: p.comment_count,
+        views: p.views_count,
+      }));
 
-    for (const it of data) {
-      if (lh <= rh) {
-        l.push(it);
-        lh += it.h;
-      } else {
-        r.push(it);
-        rh += it.h;
-      }
+      setPosts(mapped);
+    } catch (err) {
+      console.log(err);
+      setError("Failed to load posts. Please try again.");
+    } finally {
+      setLoadingPosts(false);
     }
-    return { left: l, right: r };
-  }, [data]);
+  };
 
-  const createdAtLabel = user?.created_at
-    ? new Date(user.created_at).toLocaleDateString()
-    : "";
+  const getProfile = async () => {
+    if (!profileUserId) {
+      setError("Invalid user id.");
+      setLoadingProfile(false);
+      setLoadingPosts(false);
+      return;
+    }
+
+    try {
+      setLoadingProfile(true);
+      setError("");
+
+      const userRes = await api.get<UserResponse>(`/users/${profileUserId}`);
+      const u = userRes.data;
+
+      setUserId(u.id);
+      setUsername(u.username);
+      setEmail(u.email);
+      setCreatedAt(u.created_at);
+
+      setAvatarUrl(u.profile?.avatar_url || "https://placehold.co/128x128");
+      setDescription(u.profile?.description ?? "");
+      setAbout(u.profile?.about ?? "");
+
+      setPosts([]);
+      await fetchPosts(u.id);
+    } catch (err) {
+      console.log(err);
+
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        setError("User not found.");
+      } else {
+        setError("Failed to load profile. Please try again.");
+      }
+
+      setLoadingPosts(false);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
 
   const handleUpdate = async () => {
+    if (!userId) return;
+
     try {
       setSaving(true);
       setError("");
-    } catch {
-      setError("Failed to update profile. Please try again.");
+
+      const res = await api.put<UserResponse>(`/users/${userId}`, {
+        username,
+        email,
+        avatar_url: avatarUrl,
+        description,
+        about,
+      });
+
+      const u = res.data;
+
+      setUsername(u.username);
+      setEmail(u.email);
+      setAvatarUrl(u.profile?.avatar_url || "https://placehold.co/128x128");
+      setDescription(u.profile?.description ?? "");
+      setAbout(u.profile?.about ?? "");
+
+      if (isOwner) {
+        await SecureStore.setItemAsync("user", JSON.stringify(u));
+      }
+    } catch (err) {
+      console.log(err);
+
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        const apiError = (err.response?.data as { error?: string } | undefined)
+          ?.error;
+
+        if (status === 401) setError("Please sign in to update your profile.");
+        else if (status === 403)
+          setError("You don't have permission to update this profile.");
+        else if (status === 409)
+          setError(apiError || "Username or email is already taken.");
+        else
+          setError(apiError || "Failed to update profile. Please try again.");
+      } else {
+        setError("Failed to update profile. Please try again.");
+      }
     } finally {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    getProfile();
+  }, [profileUserId]);
+
+  const { left, right } = useMemo(() => {
+    const l: PostCardProps[] = [];
+    const r: PostCardProps[] = [];
+    let lh = 0;
+    let rh = 0;
+
+    for (const post of posts) {
+      const estimatedHeight =
+        130 + (post.description?.length ?? 0) * 0.35 + post.title.length * 0.25;
+
+      if (lh <= rh) {
+        l.push(post);
+        lh += estimatedHeight;
+      } else {
+        r.push(post);
+        rh += estimatedHeight;
+      }
+    }
+
+    return { left: l, right: r };
+  }, [posts]);
+
+  const createdAtLabel = createdAt
+    ? new Date(createdAt).toLocaleDateString()
+    : "";
+  const isEmptyPosts = !loadingPosts && posts.length === 0 && !error;
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: 32 }}>
@@ -269,12 +345,7 @@ export default function Profile() {
               ) : null}
             </View>
 
-            <View
-              style={{
-                flexDirection: "row",
-                gap: 14,
-              }}
-            >
+            <View style={{ flexDirection: "row", gap: 14 }}>
               <Image
                 source={{ uri: avatarUrl || "https://placehold.co/128x128" }}
                 style={{
@@ -363,6 +434,7 @@ export default function Profile() {
             <Text style={{ color: t.text, fontSize: 22, fontWeight: "800" }}>
               {isOwner ? "My posts" : "Posts"}
             </Text>
+
             <Text
               style={{ color: t.textSecondary, marginTop: 4, fontSize: 13 }}
             >
@@ -386,18 +458,52 @@ export default function Profile() {
                 <ActivityIndicator />
                 <Text style={{ color: t.textSecondary }}>Loading posts...</Text>
               </View>
-            ) : (
+            ) : null}
+
+            {isEmptyPosts ? (
+              <View
+                style={{
+                  marginTop: 12,
+                  backgroundColor: t.surface,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: t.surfaceLiteFocus,
+                  padding: 16,
+                }}
+              >
+                <Text style={{ color: t.text, fontWeight: "700" }}>
+                  No posts yet
+                </Text>
+                <Text style={{ color: t.textSecondary, marginTop: 6 }}>
+                  {isOwner
+                    ? "Create your first post and it will appear here."
+                    : "This user hasn't posted anything yet."}
+                </Text>
+              </View>
+            ) : null}
+
+            {!loadingPosts && posts.length > 0 && (
               <View style={{ marginTop: 12 }}>
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <View style={{ flex: 1, gap: 8 }}>
-                    {left.map((item) => (
-                      <CardSkeleton key={item.id} item={item} />
+                    {left.map((post) => (
+                      <PostCard
+                        key={post.id}
+                        {...post}
+                        editable={isOwner}
+                        mode="add"
+                      />
                     ))}
                   </View>
 
                   <View style={{ flex: 1, gap: 8 }}>
-                    {right.map((item) => (
-                      <CardSkeleton key={item.id} item={item} />
+                    {right.map((post) => (
+                      <PostCard
+                        key={post.id}
+                        {...post}
+                        editable={isOwner}
+                        mode="add"
+                      />
                     ))}
                   </View>
                 </View>

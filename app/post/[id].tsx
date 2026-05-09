@@ -1,6 +1,7 @@
 import { api } from "@/src/api/http";
 import { useTheme } from "@/src/theme/useTheme";
 import type { Comment, PostByIdResponse } from "@/src/types/types";
+import AddToCollectionModal from "@/src/ui/components/AddToCollectionModal";
 import CommentThread from "@/src/ui/components/CommentThread";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -14,9 +15,10 @@ import {
   View,
 } from "react-native";
 
+const VIEW_PREFIX = "viewed_post_";
+const VIEW_MAX_AGE = 1000 * 60 * 60 * 24;
+
 export default function PostPage() {
-  const VIEW_PREFIX = "viewed_post_";
-  const VIEW_MAX_AGE = 1000 * 60 * 60 * 24;
   const t = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,6 +36,8 @@ export default function PostPage() {
   const [viewsCount, setViewsCount] = useState(0);
   const [commentCount, setCommentCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
+
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
 
   const [commentsHidden, setCommentsHidden] = useState(true);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -302,7 +306,7 @@ export default function PostPage() {
               )}
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
               <View
                 style={{
                   flex: 1,
@@ -349,6 +353,21 @@ export default function PostPage() {
                 <Text style={{ color: t.textSecondary }}>
                   💬 {commentCount}
                 </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setShowCollectionModal(true)}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  backgroundColor: pressed ? t.surfaceFocus : t.surfaceLite,
+                  borderRadius: 14,
+                  paddingVertical: 12,
+                  alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: t.surfaceLiteFocus,
+                })}
+              >
+                <Text style={{ color: t.textSecondary }}>➕</Text>
               </Pressable>
             </View>
 
@@ -580,6 +599,13 @@ export default function PostPage() {
           </>
         )}
       </ScrollView>
+
+      {showCollectionModal && Number.isFinite(postId) ? (
+        <AddToCollectionModal
+          postId={postId}
+          onClose={() => setShowCollectionModal(false)}
+        />
+      ) : null}
     </View>
   );
 }

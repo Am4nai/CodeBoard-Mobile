@@ -1,7 +1,16 @@
+import { api } from "@/src/api/http";
 import { useTheme } from "@/src/theme/useTheme";
-import React, { useMemo, useState } from "react";
+import type {
+  Collection,
+  CollectionWithPostsResponse,
+  PostCardProps,
+} from "@/src/types/types";
+import PostCard from "@/src/ui/components/PostCard";
+import axios from "axios";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -9,19 +18,9 @@ import {
   View,
 } from "react-native";
 
-type Collection = {
-  id: number;
-  name: string;
-  description: string | null;
-};
-
-type Item = {
-  id: string;
-  h: number;
-};
-
 function SectionTitle({ children }: { children: React.ReactNode }) {
   const t = useTheme();
+
   return (
     <Text style={{ color: t.textSecondary, fontSize: 13, marginBottom: 6 }}>
       {children}
@@ -31,6 +30,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 function InputBase(props: React.ComponentProps<typeof TextInput>) {
   const t = useTheme();
+
   return (
     <TextInput
       placeholderTextColor={t.textSecondary}
@@ -86,127 +86,211 @@ function ActionButton({
   );
 }
 
-function CardSkeleton({ item }: { item: Item }) {
-  const t = useTheme();
-
-  return (
-    <View
-      style={{
-        backgroundColor: t.surfaceLite,
-        borderRadius: 16,
-        padding: 12,
-        height: item.h,
-        borderWidth: 1,
-        borderColor: t.surfaceLiteFocus,
-      }}
-    >
-      <View style={{ gap: 8 }}>
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "70%",
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "60%",
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
-function SelectorRow({
-  label,
-  value,
-  onPress,
-}: {
-  label: string;
-  value: string;
-  onPress: () => void;
-}) {
-  const t = useTheme();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        backgroundColor: pressed ? t.surfaceFocus : t.surfaceLite,
-        borderRadius: 14,
-        paddingHorizontal: 14,
-        height: 46,
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor: t.surfaceLiteFocus,
-      })}
-    >
-      <Text style={{ color: t.textSecondary, fontSize: 12 }}>{label}</Text>
-      <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
-        {value}
-      </Text>
-    </Pressable>
-  );
-}
-
 export default function Collections() {
   const t = useTheme();
 
   const [isCreating, setIsCreating] = useState(true);
-  const [collections] = useState<Collection[]>([
-    { id: 1, name: "Favorites", description: "Posts I want to keep" },
-    { id: 2, name: "React Native", description: "UI + navigation patterns" },
-    { id: 3, name: "Backend", description: "API & DB notes" },
-  ]);
-
+  const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollection, setSelectedCollection] =
     useState<Collection | null>(null);
+  const [posts, setPosts] = useState<PostCardProps[]>([]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
-  const [loadingCollections] = useState(false);
-  const [loadingPosts] = useState(false);
-  const [saving] = useState(false);
+  const [loadingCollections, setLoadingCollections] = useState(true);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [error, setError] = useState("");
 
-  const data = useMemo(() => {
-    return Array.from({ length: 18 }).map((_, i) => ({
-      id: String(i),
-      h: 150 + ((i * 37) % 120),
-    }));
-  }, []);
+  const fetchCollections = async () => {
+    try {
+      setError("");
+      setLoadingCollections(true);
 
-  const { left, right } = useMemo(() => {
-    const l: Item[] = [];
-    const r: Item[] = [];
-    let lh = 0;
-    let rh = 0;
-
-    for (const it of data) {
-      if (lh <= rh) {
-        l.push(it);
-        lh += it.h;
-      } else {
-        r.push(it);
-        rh += it.h;
-      }
+      const response = await api.get<Collection[]>("/collections");
+      setCollections(response.data);
+    } catch (err) {
+      console.log(err);
+      setError("Failed to load collections. Please try again.");
+    } finally {
+      setLoadingCollections(false);
     }
-    return { left: l, right: r };
-  }, [data]);
+  };
+
+  const createCollection = async () => {
+    try {
+      setError("");
+
+      const name = title.trim();
+      const desc = description.trim();
+
+      if (!name) {
+        setError("Name is required.");
+        return;
+      }
+
+      setSaving(true);
+
+      await api.post("/collections", {
+        name,
+        description: desc || null,
+      });
+
+      await fetchCollections();
+
+      setTitle("");
+      setDescription("");
+    } catch (err) {
+      console.log(err);
+
+      if (axios.isAxiosError(err)) {
+        const apiError = (err.response?.data as { error?: string } | undefined)
+          ?.error;
+
+        setError(apiError || "Failed to create collection. Please try again.");
+      } else {
+        setError("Failed to create collection. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fetchCollectionData = async (collectionId?: number) => {
+    const idToLoad = collectionId ?? selectedCollection?.id;
+    if (!idToLoad) return;
+
+    try {
+      setLoadingPosts(true);
+      setError("");
+
+      const res = await api.get<CollectionWithPostsResponse>(
+        `/collections/${idToLoad}`,
+      );
+
+      const mapped: PostCardProps[] = res.data.posts.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.description ?? "",
+        code: p.code,
+        language: p.language_name,
+        authorName: p.author_name,
+        createdAt: p.created_at,
+        likes: p.like_count,
+        comments: p.comment_count,
+        views: p.views_count,
+      }));
+
+      setPosts(mapped);
+    } catch (err) {
+      console.log(err);
+
+      if (axios.isAxiosError(err)) {
+        const apiError = (err.response?.data as { error?: string } | undefined)
+          ?.error;
+
+        setError(apiError || "Failed to load collection. Please try again.");
+      } else {
+        setError("Failed to load collection. Please try again.");
+      }
+
+      setPosts([]);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
+
+  const updateSelectedCollection = async () => {
+    if (!selectedCollection) return;
+
+    try {
+      setError("");
+
+      const name = title.trim();
+      const desc = description.trim();
+
+      if (!name) {
+        setError("Name is required.");
+        return;
+      }
+
+      setSaving(true);
+
+      await api.put(`/collections/${selectedCollection.id}`, {
+        name,
+        description: desc || null,
+      });
+
+      await fetchCollections();
+
+      setSelectedCollection((prev) =>
+        prev ? { ...prev, name, description: desc } : prev,
+      );
+    } catch (err) {
+      console.log(err);
+
+      if (axios.isAxiosError(err)) {
+        const apiError = (err.response?.data as { error?: string } | undefined)
+          ?.error;
+
+        setError(apiError || "Failed to update collection. Please try again.");
+      } else {
+        setError("Failed to update collection. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSelectedCollection = async () => {
+    if (!selectedCollection) return;
+
+    Alert.alert(
+      "Delete collection?",
+      "Posts will not be deleted — only the collection and its links.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setError("");
+              setSaving(true);
+
+              await api.delete(`/collections/${selectedCollection.id}`);
+
+              setIsCreating(true);
+              setSelectedCollection(null);
+              setTitle("");
+              setDescription("");
+              setPosts([]);
+
+              await fetchCollections();
+            } catch (err) {
+              console.log(err);
+
+              if (axios.isAxiosError(err)) {
+                const apiError = (
+                  err.response?.data as { error?: string } | undefined
+                )?.error;
+
+                setError(
+                  apiError || "Failed to delete collection. Please try again.",
+                );
+              } else {
+                setError("Failed to delete collection. Please try again.");
+              }
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const openCreate = () => {
     setError("");
@@ -214,6 +298,7 @@ export default function Collections() {
     setSelectedCollection(null);
     setTitle("");
     setDescription("");
+    setPosts([]);
   };
 
   const openEdit = (col: Collection) => {
@@ -224,27 +309,54 @@ export default function Collections() {
     setDescription(col.description ?? "");
   };
 
-  const createCollection = () => {
-    const name = title.trim();
-    if (!name) {
-      setError("Name is required.");
-      return;
+  const removePostFromCollection = async (postId: number) => {
+    if (!selectedCollection) return;
+
+    try {
+      await api.delete(`/collections/${selectedCollection.id}/posts/${postId}`);
+      await fetchCollectionData(selectedCollection.id);
+    } catch (err) {
+      console.log(err);
+      setError("Failed to remove post from collection.");
     }
-    setError("");
   };
 
-  const updateSelectedCollection = () => {
-    const name = title.trim();
-    if (!name) {
-      setError("Name is required.");
-      return;
-    }
-    setError("");
-  };
+  useEffect(() => {
+    fetchCollections();
+  }, []);
 
-  const deleteSelectedCollection = () => {
-    openCreate();
-  };
+  useEffect(() => {
+    if (selectedCollection) {
+      fetchCollectionData(selectedCollection.id);
+    } else {
+      setPosts([]);
+    }
+  }, [selectedCollection?.id]);
+
+  const { left, right } = useMemo(() => {
+    const l: PostCardProps[] = [];
+    const r: PostCardProps[] = [];
+    let lh = 0;
+    let rh = 0;
+
+    for (const post of posts) {
+      const estimatedHeight =
+        130 + (post.description?.length ?? 0) * 0.35 + post.title.length * 0.25;
+
+      if (lh <= rh) {
+        l.push(post);
+        lh += estimatedHeight;
+      } else {
+        r.push(post);
+        rh += estimatedHeight;
+      }
+    }
+
+    return { left: l, right: r };
+  }, [posts]);
+
+  const isEmptyPosts =
+    !loadingPosts && !error && !isCreating && posts.length === 0;
 
   const selectorValue = isCreating
     ? "➕ Create collection"
@@ -271,6 +383,7 @@ export default function Collections() {
           >
             Collections
           </Text>
+
           <Text style={{ color: t.textSecondary, fontSize: 13 }}>
             Create collections and save posts you want to keep.
           </Text>
@@ -304,19 +417,27 @@ export default function Collections() {
         >
           <SectionTitle>Select a collection</SectionTitle>
 
-          <SelectorRow
-            label={loadingCollections ? "Loading..." : "Selected"}
-            value={selectorValue}
-            onPress={() => {
-              if (isCreating) {
-                openEdit(collections[0]);
-              } else {
-                openCreate();
-              }
+          <View
+            style={{
+              backgroundColor: t.surfaceLite,
+              borderRadius: 14,
+              paddingHorizontal: 14,
+              height: 46,
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: t.surfaceLiteFocus,
+              marginBottom: 10,
             }}
-          />
+          >
+            <Text style={{ color: t.textSecondary, fontSize: 12 }}>
+              Selected
+            </Text>
+            <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
+              {loadingCollections ? "Loading..." : selectorValue}
+            </Text>
+          </View>
 
-          <View style={{ marginTop: 10, gap: 8 }}>
+          <View style={{ gap: 8 }}>
             <Pressable
               onPress={openCreate}
               style={({ pressed }) => ({
@@ -349,6 +470,7 @@ export default function Collections() {
                 <Text style={{ color: t.text, fontWeight: "600" }}>
                   {col.name}
                 </Text>
+
                 {col.description ? (
                   <Text style={{ color: t.textSecondary, marginTop: 4 }}>
                     {col.description}
@@ -469,6 +591,7 @@ export default function Collections() {
                     disabled={saving}
                   />
                 </View>
+
                 <View style={{ flex: 1 }}>
                   <ActionButton
                     label="Delete"
@@ -502,49 +625,58 @@ export default function Collections() {
                 </View>
               ) : null}
 
-              {!loadingPosts && !error && !isCreating && (
+              {!loadingPosts && posts.length > 0 && (
                 <>
-                  <View
-                    style={{
-                      backgroundColor: t.surface,
-                      borderRadius: 20,
-                      borderWidth: 1,
-                      borderColor: t.surfaceLiteFocus,
-                      padding: 16,
-                      marginBottom: 12,
-                      marginHorizontal: 8,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: t.text,
-                        fontSize: 16,
-                        fontWeight: "700",
-                      }}
-                    >
-                      Posts in “{selectedCollection?.name}”
-                    </Text>
-                    <Text style={{ color: t.textSecondary, marginTop: 6 }}>
-                      Add posts from Home by clicking the “➕” button on a post.
-                    </Text>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      gap: 8,
-                      paddingHorizontal: 0,
-                    }}
-                  >
+                  <View style={{ flexDirection: "row", gap: 8 }}>
                     <View style={{ flex: 1, gap: 8 }}>
-                      {left.map((item) => (
-                        <CardSkeleton key={item.id} item={item} />
+                      {left.map((post) => (
+                        <View key={post.id} style={{ gap: 8 }}>
+                          <PostCard {...post} />
+
+                          <Pressable
+                            onPress={() => removePostFromCollection(post.id)}
+                            style={({ pressed }) => ({
+                              backgroundColor: pressed
+                                ? t.surfaceFocus
+                                : t.surfaceLite,
+                              borderRadius: 14,
+                              borderWidth: 1,
+                              borderColor: t.surfaceLiteFocus,
+                              paddingVertical: 10,
+                              alignItems: "center",
+                            })}
+                          >
+                            <Text style={{ color: t.error, fontWeight: "600" }}>
+                              Remove
+                            </Text>
+                          </Pressable>
+                        </View>
                       ))}
                     </View>
 
                     <View style={{ flex: 1, gap: 8 }}>
-                      {right.map((item) => (
-                        <CardSkeleton key={item.id} item={item} />
+                      {right.map((post) => (
+                        <View key={post.id} style={{ gap: 8 }}>
+                          <PostCard {...post} />
+
+                          <Pressable
+                            onPress={() => removePostFromCollection(post.id)}
+                            style={({ pressed }) => ({
+                              backgroundColor: pressed
+                                ? t.surfaceFocus
+                                : t.surfaceLite,
+                              borderRadius: 14,
+                              borderWidth: 1,
+                              borderColor: t.surfaceLiteFocus,
+                              paddingVertical: 10,
+                              alignItems: "center",
+                            })}
+                          >
+                            <Text style={{ color: t.error, fontWeight: "600" }}>
+                              Remove
+                            </Text>
+                          </Pressable>
+                        </View>
                       ))}
                     </View>
                   </View>
