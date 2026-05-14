@@ -12,13 +12,14 @@ export default function PostCard({
   likes = 0,
   comments = 0,
   views = 0,
+  editable,
 }: PostCardProps) {
   const t = useTheme();
   const router = useRouter();
 
   const handleOpen = () => {
     router.push({
-      pathname: "/post/[id]",
+      pathname: editable ? "/post/edit/[id]" : "/post/[id]",
       params: { id: String(id) },
     });
   };

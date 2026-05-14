@@ -1,3 +1,4 @@
+import { useAuth } from "@/src/hooks/auth/useAuth";
 import { useTheme } from "@/src/theme/useTheme";
 import { useRouter } from "expo-router";
 import React from "react";
@@ -6,6 +7,8 @@ import { Image, Pressable, ScrollView, Text, View } from "react-native";
 export default function Menu() {
   const router = useRouter();
   const t = useTheme();
+
+  const { user } = useAuth();
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
@@ -55,7 +58,7 @@ export default function Menu() {
                   }}
                   numberOfLines={1}
                 >
-                  Andrey Malyshev
+                  {user?.username ?? "User"}
                 </Text>
 
                 <Text
@@ -65,7 +68,7 @@ export default function Menu() {
                   }}
                   numberOfLines={1}
                 >
-                  @codeboard_dev
+                  {user?.profile?.description}
                 </Text>
               </View>
             </View>
