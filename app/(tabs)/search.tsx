@@ -1,99 +1,31 @@
+import { api } from "@/src/api/http";
 import { useTheme } from "@/src/theme/useTheme";
+import type { PostCardProps, SearchPostsResponse } from "@/src/types/types";
+import PostCard from "@/src/ui/components/PostCard";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useMemo } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
+import React, { useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
-type Item = {
-  id: string;
-  h: number;
+type UserSearchResult = {
+  id: number;
+  username: string;
+  avatar_url: string | null;
 };
 
-const TAGS = ["React", "API", "Auth", "UI", "Hooks", "DB", "TS", "Node"];
-const LANGS = ["TS", "JS", "Python", "Go", "Rust", "Java"];
-
-function SearchHeader() {
-  const t = useTheme();
-
-  return (
-    <View
-      style={{
-        paddingTop: 32,
-        paddingHorizontal: 16,
-        paddingBottom: 12,
-        backgroundColor: t.bg,
-        borderBottomWidth: 1,
-        borderBottomColor: t.bg,
-      }}
-    >
-      <Text
-        style={{
-          color: t.text,
-          fontSize: 24,
-          fontWeight: "700",
-        }}
-      >
-        Search
-      </Text>
-
-      <View
-        style={{
-          marginTop: 12,
-          backgroundColor: t.surfaceLite,
-          borderRadius: 14,
-          paddingHorizontal: 14,
-          height: 46,
-          justifyContent: "center",
-          borderWidth: 1,
-          borderColor: t.surfaceLiteFocus,
-        }}
-      >
-        <TextInput
-          placeholder="Search by title, tag, language..."
-          placeholderTextColor={t.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          style={{
-            color: t.text,
-            fontSize: 14,
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
-function Chip({
-  label,
-  variant = "tag",
-}: {
-  label: string;
-  variant?: "tag" | "lang";
-}) {
-  const t = useTheme();
-
-  const paddingHorizontal = variant === "tag" ? 12 : 10;
-  const paddingVertical = variant === "tag" ? 7 : 6;
-  const fontSize = variant === "tag" ? 13 : 12;
-
-  return (
-    <Pressable
-      style={({ pressed }) => ({
-        backgroundColor: pressed ? t.surfaceFocus : t.surfaceLite,
-        paddingHorizontal,
-        paddingVertical,
-        borderRadius: 999,
-        marginRight: 8,
-        borderWidth: 1,
-        borderColor: t.surfaceLiteFocus,
-      })}
-    >
-      <Text style={{ color: t.textSecondary, fontSize }}>
-        {variant === "tag" ? `#${label}` : label}
-      </Text>
-    </Pressable>
-  );
-}
+type UserSearchResponse = {
+  results: UserSearchResult[];
+};
 
 function SectionHeader({
   title,
@@ -126,131 +58,419 @@ function SectionHeader({
   );
 }
 
-function Card({ item }: { item: Item }) {
-  const t = useTheme();
-
-  return (
-    <View
-      style={{
-        backgroundColor: t.surfaceLite,
-        borderRadius: 16,
-        padding: 12,
-        height: item.h,
-        borderWidth: 1,
-        borderColor: t.surfaceLiteFocus,
-      }}
-    >
-      <View style={{ gap: 8 }}>
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "70%",
-          }}
-        />
-        <View
-          style={{
-            height: 8,
-            borderRadius: 6,
-            backgroundColor: t.surfaceLiteFocus,
-            width: "60%",
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
 export default function Search() {
   const t = useTheme();
+  const router = useRouter();
 
-  const data = useMemo(() => {
-    return Array.from({ length: 30 }).map((_, i) => ({
-      id: String(i),
-      h: 140 + ((i * 29) % 100),
+  const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
+
+  const [posts, setPosts] = useState<PostCardProps[]>([]);
+  const [users, setUsers] = useState<UserSearchResult[]>([]);
+
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [error, setError] = useState("");
+
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLoadingMore = useRef(false);
+
+  const isUserSearch = query.trim().startsWith("@");
+
+  const mapPosts = (data: SearchPostsResponse["posts"]): PostCardProps[] => {
+    return data.map((p) => ({
+      id: p.id,
+      title: p.title,
+      description: p.description ?? "",
+      code: p.code,
+      language: p.language_name,
+      authorName: p.author_name,
+      createdAt: p.created_at,
+      likes: p.like_count,
+      comments: p.comment_count,
+      views: p.views_count,
     }));
-  }, []);
+  };
 
-  const { left, right } = useMemo(() => {
-    const l: Item[] = [];
-    const r: Item[] = [];
-    let lh = 0;
-    let rh = 0;
+  const fetchPosts = async ({
+    q,
+    pageToLoad,
+    reset,
+  }: {
+    q: string;
+    pageToLoad: number;
+    reset: boolean;
+  }) => {
+    const cleanQuery = q.trim();
 
-    for (const it of data) {
-      if (lh <= rh) {
-        l.push(it);
-        lh += it.h;
-      } else {
-        r.push(it);
-        rh += it.h;
-      }
+    if (!cleanQuery || cleanQuery.startsWith("@")) {
+      setPosts([]);
+      setPage(1);
+      setTotalPages(1);
+      setError("");
+      return;
     }
 
-    return { left: l, right: r };
-  }, [data]);
+    setLoadingPosts(true);
+    setError("");
+
+    try {
+      const response = await api.get<SearchPostsResponse>(
+        `/posts/search?query=${encodeURIComponent(
+          cleanQuery,
+        )}&sort=newest&page=${pageToLoad}&limit=15`,
+      );
+
+      const mappedPosts = mapPosts(response.data.posts);
+
+      setPosts((prev) => (reset ? mappedPosts : [...prev, ...mappedPosts]));
+      setPage(response.data.page ?? pageToLoad);
+      setTotalPages(response.data.totalPages ?? pageToLoad);
+    } catch (err) {
+      console.error(err);
+      setError("Error fetching posts");
+    } finally {
+      setLoadingPosts(false);
+      isLoadingMore.current = false;
+    }
+  };
+
+  const fetchUsers = async (rawValue: string) => {
+    const usernameQuery = rawValue.replace("@", "").trim();
+
+    if (!usernameQuery) {
+      setUsers([]);
+      setError("");
+      return;
+    }
+
+    setLoadingUsers(true);
+    setError("");
+
+    try {
+      const response = await api.get<UserSearchResponse>(
+        `/users/search?query=${encodeURIComponent(usernameQuery)}`,
+      );
+
+      setUsers(response.data.results ?? []);
+    } catch (err) {
+      console.error(err);
+      setUsers([]);
+      setError("Error fetching users");
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setError("");
+
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
+
+    if (value.trim().startsWith("@")) {
+      setPosts([]);
+      setActiveQuery(value.trim());
+
+      typingTimer.current = setTimeout(() => {
+        fetchUsers(value);
+      }, 250);
+
+      return;
+    }
+
+    setUsers([]);
+  };
+
+  const handleSearch = () => {
+    const cleanQuery = query.trim();
+
+    setActiveQuery(cleanQuery);
+    setPage(1);
+
+    if (!cleanQuery) {
+      setPosts([]);
+      setUsers([]);
+      return;
+    }
+
+    if (cleanQuery.startsWith("@")) {
+      fetchUsers(cleanQuery);
+      return;
+    }
+
+    setUsers([]);
+
+    fetchPosts({
+      q: cleanQuery,
+      pageToLoad: 1,
+      reset: true,
+    });
+  };
+
+  const handleOpenUser = (userId: number) => {
+    router.push({
+      pathname: "/(tabs)/profile",
+      params: { id: String(userId) },
+    });
+  };
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (loadingPosts || isLoadingMore.current) return;
+    if (!activeQuery.trim()) return;
+    if (activeQuery.startsWith("@")) return;
+    if (page >= totalPages) return;
+
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+
+    const isNearBottom =
+      layoutMeasurement.height + contentOffset.y >= contentSize.height - 120;
+
+    if (!isNearBottom) return;
+
+    isLoadingMore.current = true;
+
+    fetchPosts({
+      q: activeQuery,
+      pageToLoad: page + 1,
+      reset: false,
+    });
+  };
+
+  const { left, right } = useMemo(() => {
+    const leftColumn: PostCardProps[] = [];
+    const rightColumn: PostCardProps[] = [];
+
+    posts.forEach((post, index) => {
+      if (index % 2 === 0) {
+        leftColumn.push(post);
+      } else {
+        rightColumn.push(post);
+      }
+    });
+
+    return {
+      left: leftColumn,
+      right: rightColumn,
+    };
+  }, [posts]);
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
-      <SearchHeader />
+      <View
+        style={{
+          paddingTop: 32,
+          paddingHorizontal: 16,
+          paddingBottom: 12,
+          backgroundColor: t.bg,
+        }}
+      >
+        <Text
+          style={{
+            color: t.text,
+            fontSize: 24,
+            fontWeight: "700",
+          }}
+        >
+          Search
+        </Text>
+
+        <View
+          style={{
+            marginTop: 12,
+            backgroundColor: t.surfaceLite,
+            borderRadius: 14,
+            paddingHorizontal: 14,
+            height: 46,
+            justifyContent: "center",
+            borderWidth: 1,
+            borderColor: t.surfaceLiteFocus,
+          }}
+        >
+          <TextInput
+            value={query}
+            onChangeText={handleQueryChange}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+            placeholder='Search posts, "#tag" or "@user"...'
+            placeholderTextColor={t.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            style={{
+              color: t.text,
+              fontSize: 14,
+            }}
+          />
+        </View>
+      </View>
 
       <View style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={handleScroll}
           contentContainerStyle={{
             paddingBottom: 120,
           }}
         >
-          <SectionHeader title="Popular tags" rightHint="Tap to filter" />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}
-          >
-            {TAGS.map((tag) => (
-              <Chip key={tag} label={tag} variant="tag" />
-            ))}
-          </ScrollView>
+          <SectionHeader
+            title={
+              activeQuery
+                ? isUserSearch
+                  ? `Users for: ${activeQuery}`
+                  : `Posts for: ${activeQuery}`
+                : "Type something to search"
+            }
+            rightHint={
+              isUserSearch
+                ? users.length
+                  ? `${users.length} found`
+                  : undefined
+                : posts.length
+                  ? `${posts.length} found`
+                  : undefined
+            }
+          />
 
-          <SectionHeader title="Languages" rightHint="Choose one" />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}
-          >
-            {LANGS.map((lang) => (
-              <Chip key={lang} label={lang} variant="lang" />
-            ))}
-          </ScrollView>
+          {error ? (
+            <Text
+              style={{
+                color: t.error,
+                paddingHorizontal: 16,
+                marginTop: 12,
+              }}
+            >
+              {error}
+            </Text>
+          ) : null}
 
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 8,
-              paddingHorizontal: 8,
-              marginTop: 14,
-            }}
-          >
-            <View style={{ flex: 1, gap: 8 }}>
-              {left.map((item) => (
-                <Card key={item.id} item={item} />
+          {loadingUsers ? (
+            <View style={{ paddingVertical: 18 }}>
+              <ActivityIndicator color={t.primary} />
+            </View>
+          ) : null}
+
+          {isUserSearch &&
+          !loadingUsers &&
+          activeQuery &&
+          users.length === 0 &&
+          !error ? (
+            <Text
+              style={{
+                color: t.textSecondary,
+                paddingHorizontal: 16,
+                marginTop: 16,
+              }}
+            >
+              No users found
+            </Text>
+          ) : null}
+
+          {isUserSearch ? (
+            <View style={{ paddingHorizontal: 16, gap: 8 }}>
+              {users.map((user) => (
+                <Pressable
+                  key={user.id}
+                  onPress={() => handleOpenUser(user.id)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: 12,
+                    borderRadius: 16,
+                    backgroundColor: pressed ? t.surfaceFocus : t.surfaceLite,
+                    borderWidth: 1,
+                    borderColor: t.surfaceLiteFocus,
+                  })}
+                >
+                  <Image
+                    source={{
+                      uri: user.avatar_url || "https://placehold.co/64x64",
+                    }}
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 21,
+                      backgroundColor: t.surfaceFocus,
+                    }}
+                  />
+
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: t.text,
+                        fontSize: 15,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {user.username}
+                    </Text>
+
+                    <Text
+                      style={{
+                        color: t.textSecondary,
+                        fontSize: 12,
+                        marginTop: 2,
+                      }}
+                    >
+                      Open profile
+                    </Text>
+                  </View>
+                </Pressable>
               ))}
             </View>
+          ) : null}
 
-            <View style={{ flex: 1, gap: 8 }}>
-              {right.map((item) => (
-                <Card key={item.id} item={item} />
-              ))}
+          {!isUserSearch &&
+          !loadingPosts &&
+          activeQuery &&
+          posts.length === 0 &&
+          !error ? (
+            <Text
+              style={{
+                color: t.textSecondary,
+                paddingHorizontal: 16,
+                marginTop: 16,
+              }}
+            >
+              Nothing found
+            </Text>
+          ) : null}
+
+          {!isUserSearch ? (
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 8,
+                paddingHorizontal: 8,
+                marginTop: 2,
+              }}
+            >
+              <View style={{ flex: 1, gap: 8 }}>
+                {left.map((post) => (
+                  <PostCard key={post.id} {...post} />
+                ))}
+              </View>
+
+              <View style={{ flex: 1, gap: 8 }}>
+                {right.map((post) => (
+                  <PostCard key={post.id} {...post} />
+                ))}
+              </View>
             </View>
-          </View>
+          ) : null}
+
+          {loadingPosts ? (
+            <View style={{ paddingVertical: 18 }}>
+              <ActivityIndicator color={t.primary} />
+            </View>
+          ) : null}
         </ScrollView>
 
         <LinearGradient

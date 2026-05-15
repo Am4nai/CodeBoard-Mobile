@@ -203,6 +203,10 @@ export type UserPostsResponse = {
 };
 
 export type SearchPostsResponse = {
+  page: number;
+  limit: number;
+  totalPosts: number;
+  totalPages: number;
   posts: Array<{
     id: number;
     author_id: number;
