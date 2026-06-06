@@ -4,7 +4,7 @@
     "slug": "codeboard-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "icon.png",
+    "icon": "./assets/icon.png",
     "scheme": "codeboardmobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -13,10 +13,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "",
-        "backgroundImage": "",
-        "monochromeImage": ""
+        "backgroundColor": "#0f172a",
+        "foregroundImage": "./assets/icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,

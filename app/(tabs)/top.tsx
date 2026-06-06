@@ -33,7 +33,7 @@ function Header({
   return (
     <View
       style={{
-        paddingTop: 18,
+        paddingTop: 40,
         paddingHorizontal: 16,
         paddingBottom: 12,
         backgroundColor: t.bg,

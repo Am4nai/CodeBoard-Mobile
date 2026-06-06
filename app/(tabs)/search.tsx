@@ -264,7 +264,7 @@ export default function Search() {
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <View
         style={{
-          paddingTop: 32,
+          paddingTop: 40,
           paddingHorizontal: 16,
           paddingBottom: 12,
           backgroundColor: t.bg,
